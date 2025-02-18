@@ -1,0 +1,4 @@
+proxy.txt
+proxys.txt
+user.csv
+__pycache__/
