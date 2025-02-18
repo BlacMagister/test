@@ -61,7 +61,6 @@ def save_proxy(proxy):
 async def check_ip(browser, index, total_users):
     ip_tab = await browser.get("https://api64.ipify.org?format=text")
     await ip_tab.sleep(5)
-
     ip = await ip_tab.evaluate('document.body.innerText.trim()')
     if ip:
         log_message(index, total_users, f"IP Using: {ip}", "success")
@@ -88,11 +87,11 @@ async def process_user(email, password, index, total_users, attempt=1):
         browser = await zd.start(config=cfg)
         log_message(index, total_users, f"Processing register WebShare (Attempt {attempt}/{MAX_RETRIES})", "process")
         time.sleep(5)
-        ip = await check_ip(browser, index, total_users)
+        await check_ip(browser, index, total_users)
 
+        # Buka halaman register WebShare
         tab = await browser.get("https://dashboard.webshare.io/register?source=home_hero_button_register")
         await tab.sleep(DELAY_TIME)
-
         create_account = await tab.find("Sign Up With Google", best_match=True, timeout=10)
         await create_account.click()
         log_message(index, total_users, "Clicked 'Sign Up With Google'", "success")
@@ -103,6 +102,7 @@ async def process_user(email, password, index, total_users, attempt=1):
         google_tab = tabs[-1]
         await google_tab.activate()
 
+        # Input email
         email_input = await google_tab.select("input[type=email]", timeout=10)
         await email_input.send_keys(email)
         log_message(index, total_users, "Entered email", "success")
@@ -113,6 +113,7 @@ async def process_user(email, password, index, total_users, attempt=1):
         log_message(index, total_users, "Clicked Next after email", "success")
         await google_tab.sleep(DELAY_TIME)
 
+        # Input password
         password_input = await google_tab.select("input[type=password]", timeout=10)
         await password_input.send_keys(password)
         log_message(index, total_users, "Entered password", "success")
@@ -123,46 +124,44 @@ async def process_user(email, password, index, total_users, attempt=1):
         log_message(index, total_users, "Logged in successfully", "success")
         await google_tab.sleep(DELAY_TIME)
 
-        # Menangani halaman konfirmasi jika muncul
+        # Menangani halaman konfirmasi
         try:
-            saya_mengerti = await google_tab.find("#confirm", best_match=True, timeout=10)
-            if saya_mengerti:
-                await saya_mengerti.click()
+            confirm_btn = await google_tab.find("#confirm", best_match=True, timeout=10)
+            if confirm_btn:
+                await confirm_btn.click()
                 log_message(index, total_users, "Confirmed agreement", "success")
                 await google_tab.sleep(DELAY_TIME)
         except Exception:
             log_message(index, total_users, "No confirmation needed", "warning")
 
-        # Mencoba mencari tombol untuk melanjutkan login GSuite.
-        # Coba beberapa kemungkinan teks tombol: "Continue", "I agree", "Accept"
-        continuation_found = False
-        for btn_text in ["Continue", "I agree", "Accept"]:
-            try:
-                btn = await google_tab.find(btn_text, best_match=True, timeout=10)
-                if btn:
-                    await btn.click()
-                    log_message(index, total_users, f"Clicked '{btn_text}' button", "success")
-                    await google_tab.sleep(DELAY_TIME)
-                    continuation_found = True
-                    break
-            except Exception:
-                continue
-
-        if not continuation_found:
-            log_message(index, total_users, "No continuation button found, proceeding", "warning")
-
-        # Kembali ke tab utama WebShare
+        # Menangani halaman "Let's Get Started"
         main_tab = tabs[0]
         await main_tab.activate()
-        log_message(index, total_users, "Back to WebShare dashboard", "success")
+        log_message(index, total_users, "Checking for 'Let's Get Started' button", "info")
 
-        await main_tab.sleep(DELAY_TIME)
+        try:
+            lets_get_started = await main_tab.find("Let's Get Started", best_match=True, timeout=15)
+            if lets_get_started:
+                await lets_get_started.click()
+                log_message(index, total_users, "Clicked 'Let's Get Started' button", "success")
+                await main_tab.sleep(DELAY_TIME)
+        except Exception:
+            log_message(index, total_users, "No 'Let's Get Started' button found, proceeding", "warning")
+
+        # Masuk ke halaman proxy list
+        log_message(index, total_users, "Navigating to Proxy List", "info")
         await main_tab.get("https://dashboard.webshare.io/proxy/list")
         await main_tab.sleep(DELAY_TIME)
 
-        proxy_text = await main_tab.evaluate(
-            'document.querySelector("#simple-tabpanel-0 pre code span span:nth-child(3)")?.textContent.trim()'
-        )
+        # Tunggu hingga proxy list muncul
+        proxy_text = None
+        for _ in range(10):  # Coba selama 10x delay
+            proxy_text = await main_tab.evaluate(
+                'document.querySelector("#simple-tabpanel-0 pre code span span:nth-child(3)")?.textContent.trim()'
+            )
+            if proxy_text:
+                break
+            await main_tab.sleep(2)
 
         if proxy_text:
             proxy_text = proxy_text.replace('"', '')
@@ -188,11 +187,9 @@ async def main():
         return
 
     total_users = len(users)
-
     for i, user in enumerate(users.copy(), start=1):
         email = (user.get("Email") or user.get("Email Address [Required]", "")).strip()
         password = (user.get("Password") or user.get("Password [Required]", "")).strip()
-
         if not email or not password:
             log_message(i, total_users, "Invalid user data", "warning")
             continue
