@@ -21,7 +21,6 @@ MAX_RETRIES = 3
 
 
 def log_message(index, total, message, status="info"):
-    """Fungsi untuk mencetak log dengan warna berdasarkan status."""
     now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     color = {
         "success": Fore.GREEN,
@@ -37,7 +36,6 @@ def log_message(index, total, message, status="info"):
 
 
 def read_csv(file_path):
-    """Membaca file CSV dan mengembalikan daftar user."""
     if not os.path.exists(file_path):
         return []
     with open(file_path, mode="r", newline="") as file:
@@ -46,7 +44,6 @@ def read_csv(file_path):
 
 
 def write_csv(file_path, users):
-    """Menulis ulang file CSV setelah akun berhasil diproses."""
     if users:
         with open(file_path, mode="w", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=users[0].keys())
@@ -57,18 +54,15 @@ def write_csv(file_path, users):
 
 
 def save_proxy(proxy):
-    """Menyimpan proxy yang berhasil diambil."""
     with open(PROXY_FILE, "a") as file:
         file.write(proxy + "\n")
 
 
 async def check_ip(browser, index, total_users):
-    """Mengecek IP yang sedang digunakan."""
     ip_tab = await browser.get("https://api64.ipify.org?format=text")
     await ip_tab.sleep(5)
 
     ip = await ip_tab.evaluate('document.body.innerText.trim()')
-
     if ip:
         log_message(index, total_users, f"IP Using: {ip}", "success")
         return ip.strip()
@@ -78,7 +72,6 @@ async def check_ip(browser, index, total_users):
 
 
 async def process_user(email, password, index, total_users, attempt=1):
-    """Proses registrasi WebShare dengan akun Gmail GSuite."""
     cfg = zd.Config()
     cfg._default_browser_args = [
         "--headless=new",
@@ -102,7 +95,7 @@ async def process_user(email, password, index, total_users, attempt=1):
 
         create_account = await tab.find("Sign Up With Google", best_match=True, timeout=10)
         await create_account.click()
-        log_message(index, total_users, "Clicked 'Sign Up with Google'", "success")
+        log_message(index, total_users, "Clicked 'Sign Up With Google'", "success")
         await tab.sleep(DELAY_TIME)
 
         # Beralih ke tab login Google
@@ -140,23 +133,31 @@ async def process_user(email, password, index, total_users, attempt=1):
         except Exception:
             log_message(index, total_users, "No confirmation needed", "warning")
 
-        # Mencoba mencari tombol "Continue"
-        try:
-            setuju_button = await google_tab.find("Continue", best_match=True, timeout=10)
-            await setuju_button.click()
-            log_message(index, total_users, "Clicked Continue button", "success")
-            await google_tab.sleep(DELAY_TIME)
-        except Exception:
-            log_message(index, total_users, "No Continue button found, proceeding", "warning")
+        # Mencoba mencari tombol untuk melanjutkan login GSuite.
+        # Coba beberapa kemungkinan teks tombol: "Continue", "I agree", "Accept"
+        continuation_found = False
+        for btn_text in ["Continue", "I agree", "Accept"]:
+            try:
+                btn = await google_tab.find(btn_text, best_match=True, timeout=10)
+                if btn:
+                    await btn.click()
+                    log_message(index, total_users, f"Clicked '{btn_text}' button", "success")
+                    await google_tab.sleep(DELAY_TIME)
+                    continuation_found = True
+                    break
+            except Exception:
+                continue
 
-        # Kembali ke tab utama
+        if not continuation_found:
+            log_message(index, total_users, "No continuation button found, proceeding", "warning")
+
+        # Kembali ke tab utama WebShare
         main_tab = tabs[0]
         await main_tab.activate()
         log_message(index, total_users, "Back to WebShare dashboard", "success")
 
         await main_tab.sleep(DELAY_TIME)
         await main_tab.get("https://dashboard.webshare.io/proxy/list")
-
         await main_tab.sleep(DELAY_TIME)
 
         proxy_text = await main_tab.evaluate(
@@ -181,7 +182,6 @@ async def process_user(email, password, index, total_users, attempt=1):
 
 
 async def main():
-    """Fungsi utama untuk memproses daftar akun."""
     users = read_csv(CSV_FILE)
     if not users:
         print(Fore.RED + "No user found in user.csv" + Style.RESET_ALL)
@@ -190,8 +190,8 @@ async def main():
     total_users = len(users)
 
     for i, user in enumerate(users.copy(), start=1):
-        email = user.get("Email") or user.get("Email Address [Required]", "").strip()
-        password = user.get("Password") or user.get("Password [Required]", "").strip()
+        email = (user.get("Email") or user.get("Email Address [Required]", "")).strip()
+        password = (user.get("Password") or user.get("Password [Required]", "")).strip()
 
         if not email or not password:
             log_message(i, total_users, "Invalid user data", "warning")
@@ -199,7 +199,6 @@ async def main():
 
         for attempt in range(1, MAX_RETRIES + 1):
             success = await process_user(email, password, i, total_users, attempt)
-
             if success:
                 users.remove(user)
                 write_csv(CSV_FILE, users)
